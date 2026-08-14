@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { evalTS } from "../lib/utils/bolt";
+import { evalTS, listenTS } from "../lib/utils/bolt";
 import { path } from "../lib/cep/node";
 import { loadOrBuildIndex, searchIndex, findAepFiles, findArchiveFiles, type CollectsIndex, type IndexedFolder } from "../lib/collects/driveIndex";
 import { hydrateWithProgress, copyFileWithProgress } from "../lib/collects/hydrate";
@@ -124,6 +124,22 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [panelOpen]);
 
+  // Общая загрузка/пересборка индекса для конкретного пути — используется и
+  // при монтировании, и при живом обновлении пути из гайда (см. ниже):
+  // loadOrBuildIndex сам заметит, что сохранённый кэш относится к другому
+  // root, и пересоберёт индекс с нуля.
+  const loadIndexForRoot = async (rootPath: string) => {
+    setRoot(rootPath);
+    setIndexStatus({ phase: "loading" });
+    try {
+      const index = await loadOrBuildIndex(rootPath);
+      indexRef.current = index;
+      setIndexStatus({ phase: "ready", count: index.folders.length });
+    } catch (e: any) {
+      setIndexStatus({ phase: "error", message: e?.message || String(e) });
+    }
+  };
+
   useEffect(() => {
     (async () => {
       let savedRoot = await evalTS("getSavedCollectsRoot");
@@ -138,15 +154,23 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
         savedRoot = entered;
         evalTS("saveCollectsRoot", entered);
       }
-      setRoot(savedRoot);
-      try {
-        const index = await loadOrBuildIndex(savedRoot);
-        indexRef.current = index;
-        setIndexStatus({ phase: "ready", count: index.folders.length });
-      } catch (e: any) {
-        setIndexStatus({ phase: "error", message: e?.message || String(e) });
-      }
+      await loadIndexForRoot(savedRoot);
     })();
+  }, []);
+
+  // Путь к коллектам можно поменять в окне гайда, пока основная панель уже
+  // открыта — без этого события панель узнала бы о новом пути только после
+  // полного закрытия и повторного открытия (см. GuideApp.tsx).
+  useEffect(() => {
+    listenTS("collectsRootChanged", (data) => {
+      if (!data?.path) return;
+      setQuery("");
+      setMatches([]);
+      setExpandedPath(null);
+      setExpandedFolder(null);
+      setCompRows([]);
+      loadIndexForRoot(data.path);
+    });
   }, []);
 
   // Только синхронный поиск по уже загруженному в память индексу — никакого
@@ -166,19 +190,32 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
     setExpandedFolder(match);
     setCompRows([]);
     setExpandState({ phase: "hydrating", percent: 0, fileIndex: 0, fileCount: 0 });
+    // Раньше любой сбой на любом из шагов ниже сводился к одному общему
+    // catch — если пойманное значение не было полноценным Error (например,
+    // отклонённый evalTS-промис нёс голую строку или значение null), в панели
+    // просто показывалось "null" без единого намёка, на каком именно шаге
+    // (распаковка? хидрация? сам evalTS?) что пошло не так. step() метит
+    // каждый шаг явно, чтобы это больше не приходилось выяснять гаданием.
+    const step = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+      try {
+        return await fn();
+      } catch (e: any) {
+        throw new Error(`[${label}] ${e?.message ?? String(e)}`);
+      }
+    };
     try {
-      let aepFiles = await findAepFiles(match.path);
+      let aepFiles = await step("findAepFiles", () => findAepFiles(match.path));
 
       // Некоторые коллекты лежат архивом, а не голым .aep — скачиваем архив
       // в папку текущего (открытого) проекта и распаковываем там же, потом
       // ищем .aep уже в распакованном.
       if (aepFiles.length === 0) {
-        const archiveFiles = await findArchiveFiles(match.path);
+        const archiveFiles = await step("findArchiveFiles", () => findArchiveFiles(match.path));
         if (archiveFiles.length === 0) {
           setExpandState({ phase: "error", message: ".aep и архив не найдены внутри этой папки." });
           return;
         }
-        const projectFolder = await evalTS("getCurrentProjectFolder");
+        const projectFolder = await step("getCurrentProjectFolder", () => evalTS("getCurrentProjectFolder"));
         if (!projectFolder) {
           setExpandState({ phase: "error", message: "Сохраните текущий проект перед импортом архивного коллекта — распаковывать некуда." });
           return;
@@ -187,12 +224,14 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
         for (let i = 0; i < archiveFiles.length; i++) {
           const archivePath = archiveFiles[i];
           setExpandState({ phase: "hydrating", percent: 0, fileIndex: i, fileCount: archiveFiles.length });
-          await hydrateWithProgress(archivePath, (percent) => setExpandState({ phase: "hydrating", percent, fileIndex: i, fileCount: archiveFiles.length }));
+          await step("hydrateWithProgress:archive", () =>
+            hydrateWithProgress(archivePath, (percent) => setExpandState({ phase: "hydrating", percent, fileIndex: i, fileCount: archiveFiles.length }))
+          );
 
           setExpandState({ phase: "extracting" });
           const targetDir = path.join(projectFolder, match.name);
-          await extractZipTo(archivePath, targetDir);
-          extractedAeps.push(...(await findAepFiles(targetDir)));
+          await step("extractZipTo", () => extractZipTo(archivePath, targetDir));
+          extractedAeps.push(...(await step("findAepFiles:extracted", () => findAepFiles(targetDir))));
         }
         if (extractedAeps.length === 0) {
           setExpandState({ phase: "error", message: ".aep не найден внутри распакованного архива." });
@@ -205,12 +244,14 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
       for (let i = 0; i < aepFiles.length; i++) {
         const aepPath = aepFiles[i];
         setExpandState({ phase: "hydrating", percent: 0, fileIndex: i, fileCount: aepFiles.length });
-        await hydrateWithProgress(aepPath, (percent) => setExpandState({ phase: "hydrating", percent, fileIndex: i, fileCount: aepFiles.length }));
+        await step("hydrateWithProgress:aep", () =>
+          hydrateWithProgress(aepPath, (percent) => setExpandState({ phase: "hydrating", percent, fileIndex: i, fileCount: aepFiles.length }))
+        );
 
         setExpandState({ phase: "listing" });
-        const result = await evalTS("listCollectVersions", aepPath);
+        const result = await step("evalTS:listCollectVersions", () => evalTS("listCollectVersions", aepPath));
         if (!result.ok) {
-          setExpandState({ phase: "error", message: result.message || "Не удалось прочитать коллект." });
+          setExpandState({ phase: "error", message: "[listCollectVersions:ok=false] " + (result.message || "Не удалось прочитать коллект.") });
           return;
         }
         for (const c of result.compositions) {
@@ -230,7 +271,8 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
       setCompRows(sortCompRows(collected));
       setExpandState(collected.length === 0 ? { phase: "error", message: "Композиций внутри коллекта не найдено." } : { phase: "done" });
     } catch (e: any) {
-      setExpandState({ phase: "error", message: e?.message || String(e) });
+      console.error("handleExpand failed", e);
+      setExpandState({ phase: "error", message: e?.message ?? String(e) });
     } finally {
       busyRef.current = false;
     }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { version } from "../../shared/shared";
-import { evalTS, openLinkInBrowser } from "../lib/utils/bolt";
+import { evalTS, openLinkInBrowser, dispatchTS } from "../lib/utils/bolt";
 import { DEFAULT_COLLECTS_ROOT } from "../../shared/defaults";
 import "./guide.scss";
 
@@ -89,7 +89,12 @@ export const GuideApp = () => {
   };
 
   const handleCollectsRootBlur = () => {
-    evalTS("saveCollectsRoot", collectsRoot.trim());
+    const trimmed = collectsRoot.trim();
+    evalTS("saveCollectsRoot", trimmed);
+    // Основная панель может быть уже открыта и уже построила индекс по
+    // старому пути — без этого события она узнала бы о новом пути только
+    // после полного закрытия и повторного открытия.
+    dispatchTS("collectsRootChanged", { path: trimmed });
   };
 
   const handleToggleIcons = () => {

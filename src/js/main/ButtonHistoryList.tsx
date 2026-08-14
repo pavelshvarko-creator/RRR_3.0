@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { evalTS } from "../lib/utils/bolt";
 import { loadButtonHistory } from "../lib/buttons/history";
 import type { ButtonHistoryEntry } from "../../shared/customButtons";
+import { DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
 
 // Живёт внутри диалога добавления/редактирования кнопки — вся история видна
 // всем без исключения, поэтому отдельного переключателя "опубликовать" нет:
@@ -18,7 +19,10 @@ export const ButtonHistoryList = ({ onImport }: { onImport: (entry: ButtonHistor
       try {
         let historyPath = await evalTS("getSavedButtonsHistoryPath");
         if (!historyPath) {
-          const entered = window.prompt("Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):");
+          const entered = window.prompt(
+            "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
+            DEFAULT_BUTTONS_HISTORY_PATH
+          );
           if (!entered) {
             setLoading(false);
             return;

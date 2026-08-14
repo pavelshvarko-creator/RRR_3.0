@@ -10,6 +10,7 @@ import { SetupDialog } from "./SetupDialog";
 import { runCustomButtonAction } from "../lib/buttons/runAction";
 import { publishButtonToHistory } from "../lib/buttons/history";
 import type { ButtonSlot as ButtonSlotType, CustomButtonDef, ButtonHistoryEntry } from "../../shared/customButtons";
+import { DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
 import "./main.scss";
 
 import icon9x16 from "../assets/RRR/9x16.png";
@@ -249,7 +250,10 @@ export const App = () => {
       const author = await evalTS("getSavedCreatorName");
       let targetPath = await evalTS("getSavedButtonsHistoryPath");
       if (!targetPath) {
-        const entered = window.prompt("Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):");
+        const entered = window.prompt(
+          "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
+          DEFAULT_BUTTONS_HISTORY_PATH
+        );
         if (!entered) return;
         targetPath = entered;
         evalTS("saveButtonsHistoryPath", entered);

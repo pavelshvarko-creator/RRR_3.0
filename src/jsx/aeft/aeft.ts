@@ -1518,12 +1518,95 @@ function collectAllCompsUnder(root: FolderItem): Array<{ compName: string; w: nu
   return result;
 }
 
+// proj.importFile(..., ImportAsType.PROJECT) обычно возвращает FolderItem —
+// обёртку с содержимым импортированного проекта, которую вызывающий код тут
+// же переносит в корень и потом удаляет целиком. Но для некоторых архивных
+// коллектов метод вместо этого создаёт итемы СРАЗУ в корне проекта и
+// возвращает null — попытка тут же обратиться к .parentFolder у null роняла
+// с "TypeError: null is not an object" (см. чат). Ловим оба случая: если
+// пришла папка — используем её как раньше; если null — сами оборачиваем всё,
+// что реально появилось в проекте (по разнице ID до/после импорта), во
+// временную папку, чтобы весь остальной код (isDescendantOf/удаление после
+// просмотра) продолжал работать без изменений.
+function importAepAsFolder(file: File): { folder: FolderItem | null; error?: string } {
+  var proj = app.project;
+  var existingIDs: { [id: number]: boolean } = {};
+  for (var e = 1; e <= proj.numItems; e++) existingIDs[proj.item(e).id] = true;
+
+  var importResult: any;
+  app.beginSuppressDialogs();
+  try {
+    var importOptions = new ImportOptions(file);
+    importOptions.importAs = ImportAsType.PROJECT;
+    importResult = proj.importFile(importOptions);
+  } catch (err: any) {
+    app.endSuppressDialogs(false);
+    // Некоторые сбои импорта (повреждённый/несовместимый .aep) бросают не
+    // полноценный Error, а голый null/undefined — describeCaught (объявлена
+    // ниже в файле, но function-декларации поднимаются целиком) не даёт
+    // такому значению уронить уже саму обработку ошибки.
+    return { folder: null, error: describeCaught(err) };
+  }
+  app.endSuppressDialogs(false);
+
+  if (importResult instanceof FolderItem) {
+    importResult.parentFolder = proj.rootFolder;
+    return { folder: importResult };
+  }
+
+  var wrapper = proj.items.addFolder("__RRR_Collect_Import__");
+  for (var i = 1; i <= proj.numItems; i++) {
+    var it = proj.item(i);
+    // Только те новые итемы, что импорт положил ПРЯМО в корень — уже
+    // вложенные в какую-то другую новую папку переедут вместе с ней и
+    // трогать их отдельно нельзя, иначе сплющится структура импорта.
+    if (it !== wrapper && !existingIDs[it.id] && it.parentFolder === proj.rootFolder) {
+      try { it.parentFolder = wrapper; } catch (_) {}
+    }
+  }
+  return { folder: wrapper };
+}
+
+// Достаёт человекочитаемое сообщение из ЛЮБОГО пойманного значения — в
+// ExtendScript через catch иногда проходят не полноценные Error, а голые
+// null/undefined/строки; вызов .toString() на таких значениях сам бросает
+// новое исключение. Без этой обёртки такое исключение ускользало мимо
+// try/catch самой функции наружу, в автосгенерированную обвязку evalTS
+// (bolt.ts), где e.fileName=... на "пустом" e роняло уже её саму — и до
+// панели долетала не причина, а голая строка "null" без единого пояснения.
+function describeCaught(e: any): string {
+  if (!e) return "пустое исключение (null/undefined) — сама AE не дала причины";
+  try {
+    if (typeof e === "string") return e;
+    if (e.message) return String(e.message);
+    return e.toString();
+  } catch (_) {
+    return "исключение без читаемого описания";
+  }
+}
+
 // Заглянуть внутрь коллекта БЕЗ следа: импортируем .aep целиком, читаем
 // список ВСЕХ композиций (см. collectAllCompsUnder — соглашение об именах
 // между коллектами не унифицировано, поэтому не фильтруем, а показываем всё
 // и даём выбрать), тут же полностью убираем импортированное. Текущий живой
 // проект пользователя в итоге не меняется вообще.
+//
+// Всё тело обёрнуто в try/catch верхнего уровня (см. describeCaught) — любая
+// внутренняя ошибка (в т.ч. "пустое" исключение из недр AE) должна дойти до
+// панели читаемым сообщением, а не оборвать evalTS-обвязку немым "null".
 export function listCollectVersions(aepPath: string): {
+  ok: boolean;
+  compositions: Array<{ compName: string; w: number; h: number; lang: string; isNested: boolean }>;
+  message?: string;
+} {
+  try {
+    return listCollectVersionsCore(aepPath);
+  } catch (e: any) {
+    return { ok: false, compositions: [], message: "Внутренняя ошибка при чтении коллекта: " + describeCaught(e) };
+  }
+}
+
+function listCollectVersionsCore(aepPath: string): {
   ok: boolean;
   compositions: Array<{ compName: string; w: number; h: number; lang: string; isNested: boolean }>;
   message?: string;
@@ -1534,18 +1617,11 @@ export function listCollectVersions(aepPath: string): {
   var file = new File(aepPath);
   if (!file.exists) return { ok: false, compositions: [], message: "Файл не найден: " + aepPath };
 
-  var importedRoot: FolderItem;
-  app.beginSuppressDialogs();
-  try {
-    var importOptions = new ImportOptions(file);
-    importOptions.importAs = ImportAsType.PROJECT;
-    importedRoot = proj.importFile(importOptions) as FolderItem;
-    importedRoot.parentFolder = proj.rootFolder;
-  } catch (e: any) {
-    app.endSuppressDialogs(false);
-    return { ok: false, compositions: [], message: "Не удалось открыть коллект: " + e.toString() };
+  var imported = importAepAsFolder(file);
+  if (!imported.folder) {
+    return { ok: false, compositions: [], message: "Не удалось открыть коллект: " + (imported.error || "неизвестная ошибка") };
   }
-  app.endSuppressDialogs(false);
+  var importedRoot = imported.folder;
 
   var compositions: Array<{ compName: string; w: number; h: number; lang: string; isNested: boolean }>;
   try {
@@ -1660,18 +1736,11 @@ export function prepareCollectImport(
   var file = new File(aepPath);
   if (!file.exists) return { ok: false, keptCompNames: [], missingCompNames: targetCompNames, footagePaths: [], message: "Файл не найден: " + aepPath };
 
-  var importedRoot: FolderItem;
-  app.beginSuppressDialogs();
-  try {
-    var importOptions = new ImportOptions(file);
-    importOptions.importAs = ImportAsType.PROJECT;
-    importedRoot = proj.importFile(importOptions) as FolderItem;
-    importedRoot.parentFolder = proj.rootFolder;
-  } catch (e: any) {
-    app.endSuppressDialogs(false);
-    return { ok: false, keptCompNames: [], missingCompNames: targetCompNames, footagePaths: [], message: "Не удалось открыть коллект: " + e.toString() };
+  var imported = importAepAsFolder(file);
+  if (!imported.folder) {
+    return { ok: false, keptCompNames: [], missingCompNames: targetCompNames, footagePaths: [], message: "Не удалось открыть коллект: " + (imported.error || "неизвестная ошибка") };
   }
-  app.endSuppressDialogs(false);
+  var importedRoot = imported.folder;
 
   app.beginUndoGroup("Импорт коллекта");
   try {
@@ -1770,7 +1839,7 @@ export function prepareCollectImport(
     return { ok: true, keptCompNames: keptCompNames, missingCompNames: missing, footagePaths: footagePaths };
   } catch (e: any) {
     app.endUndoGroup();
-    return { ok: false, keptCompNames: [], missingCompNames: targetCompNames, footagePaths: [], message: "Error: " + e.toString() };
+    return { ok: false, keptCompNames: [], missingCompNames: targetCompNames, footagePaths: [], message: "Error: " + describeCaught(e) };
   }
 }
 
@@ -1784,7 +1853,7 @@ export function triggerCollectFilesDialog(): { ok: boolean; message?: string } {
     triggerNativeCollectFilesCommand();
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, message: e.toString() };
+    return { ok: false, message: describeCaught(e) };
   }
 }
 
@@ -1824,7 +1893,7 @@ export function saveCurrentProject(suggestedName: string): { ok: boolean; messag
     app.settings.saveSetting(SETTINGS_SECTION, SETTINGS_KEY_LAST_SAVE_FOLDER, chosen.parent.fsName);
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, message: e.toString() };
+    return { ok: false, message: describeCaught(e) };
   }
 }
 
@@ -1847,7 +1916,7 @@ export function relinkFootage(oldPath: string, newPath: string): { ok: boolean; 
         it.replace(newFile);
         return { ok: true };
       } catch (e: any) {
-        return { ok: false, message: e.toString() };
+        return { ok: false, message: describeCaught(e) };
       }
     }
   }
