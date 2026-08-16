@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { version } from "../../shared/shared";
 import { csi, evalTS, openLinkInBrowser, dispatchTS } from "../lib/utils/bolt";
 import { DEFAULT_COLLECTS_ROOT, DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
+import { autoDetectSharedPath } from "../lib/utils/autoDetectSharedPath";
 import "./guide.scss";
 
 // Содержимое гайда — аккордеон: заголовок с превью-«кнопками» + стрелочка, под ней текст.
@@ -136,7 +137,13 @@ export const GuideApp = () => {
     evalTS("getIconModeSetting").then((saved) => setUseIcons(saved !== false));
     evalTS("getSavedCreatorName").then((saved) => setCreatorName(saved || ""));
     evalTS("getSavedCollectsRoot").then((saved) => setCollectsRoot(saved || DEFAULT_COLLECTS_ROOT));
-    evalTS("getSavedButtonsHistoryPath").then((saved) => setButtonsHistoryPath(saved || DEFAULT_BUTTONS_HISTORY_PATH));
+    evalTS("getSavedButtonsHistoryPath").then((saved) => {
+      if (saved) {
+        setButtonsHistoryPath(saved);
+        return;
+      }
+      autoDetectSharedPath(DEFAULT_BUTTONS_HISTORY_PATH).then((detected) => setButtonsHistoryPath(detected || DEFAULT_BUTTONS_HISTORY_PATH));
+    });
 
     GUIDE_SECTIONS.forEach((section) => {
       const img = new Image();

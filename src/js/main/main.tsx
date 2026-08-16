@@ -11,6 +11,7 @@ import { runCustomButtonAction } from "../lib/buttons/runAction";
 import { publishButtonToHistory } from "../lib/buttons/history";
 import type { ButtonSlot as ButtonSlotType, CustomButtonDef, ButtonHistoryEntry } from "../../shared/customButtons";
 import { DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
+import { autoDetectSharedPath } from "../lib/utils/autoDetectSharedPath";
 import "./main.scss";
 
 import icon9x16 from "../assets/RRR/9x16.png";
@@ -250,13 +251,19 @@ export const App = () => {
       const author = await evalTS("getSavedCreatorName");
       let targetPath = await evalTS("getSavedButtonsHistoryPath");
       if (!targetPath) {
-        const entered = window.prompt(
-          "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
-          DEFAULT_BUTTONS_HISTORY_PATH
-        );
-        if (!entered) return;
-        targetPath = entered;
-        evalTS("saveButtonsHistoryPath", entered);
+        const detected = await autoDetectSharedPath(DEFAULT_BUTTONS_HISTORY_PATH);
+        if (detected) {
+          targetPath = detected;
+          evalTS("saveButtonsHistoryPath", detected);
+        } else {
+          const entered = window.prompt(
+            "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
+            DEFAULT_BUTTONS_HISTORY_PATH
+          );
+          if (!entered) return;
+          targetPath = entered;
+          evalTS("saveButtonsHistoryPath", entered);
+        }
       }
       const entry: ButtonHistoryEntry = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,

@@ -5,7 +5,8 @@
 // правит поле перед сохранением.
 export const DEFAULT_COLLECTS_ROOT = "G:\\Общие диски\\BP_NEW_Collects(2024 - ...)";
 
-// Та же логика: папка на Shared Drive, поэтому путь одинаковый для всей
-// команды с точностью до буквы диска — предзаполненное значение по
-// умолчанию, редактируемое, а не жёстко зашитое.
-export const DEFAULT_BUTTONS_HISTORY_PATH = "H:\\Общие диски\\Exchange_VideoTeam\\Pavel Shvarko\\+Buttons";
+// Теперь подпапка того же Shared Drive, что и коллекты (BP_NEW_Collects) —
+// та же логика: путь одинаковый для всей команды с точностью до буквы
+// диска, предзаполненное значение по умолчанию, редактируемое, а не жёстко
+// зашитое.
+export const DEFAULT_BUTTONS_HISTORY_PATH = "H:\\Общие диски\\BP_NEW_Collects(2024 - ...)\\Buttons";

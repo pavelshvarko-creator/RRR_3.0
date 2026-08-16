@@ -1,5 +1,6 @@
 import { fs, path, os } from "../cep/node";
 import { DEFAULT_COLLECTS_ROOT } from "../../../shared/defaults";
+import { autoDetectSharedPath } from "../utils/autoDetectSharedPath";
 
 export type IndexedFolder = {
   name: string;
@@ -91,28 +92,8 @@ export async function loadOrBuildIndex(root: string, maxAgeMs = 60 * 60 * 1000):
   return buildIndex(root);
 }
 
-// Google Drive Desktop монтирует Shared Drive на свою букву диска у каждого
-// пользователя (G:, H: и т.д.) — а путь ПОСЛЕ буквы (папка "Общие диски" +
-// название самого шаред-драйва) одинаковый у всей команды. Вместо того чтобы
-// заставлять человека вручную поправлять букву на новой машине, перебираем
-// все буквы параллельно и берём первую, где такой путь реально существует.
 export async function autoDetectCollectsRoot(): Promise<string | null> {
-  const relative = DEFAULT_COLLECTS_ROOT.replace(/^[A-Za-z]:\\/, "");
-  const letters: string[] = [];
-  for (let code = 67; code <= 90; code++) letters.push(String.fromCharCode(code));
-
-  const checks = await Promise.allSettled(
-    letters.map(async (letter) => {
-      const candidate = `${letter}:\\${relative}`;
-      const stat = await fs.promises.stat(candidate);
-      if (!stat.isDirectory()) throw new Error("not a directory");
-      return candidate;
-    })
-  );
-  for (const result of checks) {
-    if (result.status === "fulfilled") return result.value;
-  }
-  return null;
+  return autoDetectSharedPath(DEFAULT_COLLECTS_ROOT);
 }
 
 // Папки коллектов называются по проекту без версии ("...PromoBlue folder"),

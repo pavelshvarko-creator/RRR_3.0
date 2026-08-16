@@ -3,6 +3,7 @@ import { evalTS } from "../lib/utils/bolt";
 import { loadButtonHistory } from "../lib/buttons/history";
 import type { ButtonHistoryEntry } from "../../shared/customButtons";
 import { DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
+import { autoDetectSharedPath } from "../lib/utils/autoDetectSharedPath";
 
 const PREVIEW_MAX_WIDTH = 260;
 
@@ -27,16 +28,22 @@ export const ButtonHistoryList = ({ onImport }: { onImport: (entry: ButtonHistor
       try {
         let historyPath = await evalTS("getSavedButtonsHistoryPath");
         if (!historyPath) {
-          const entered = window.prompt(
-            "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
-            DEFAULT_BUTTONS_HISTORY_PATH
-          );
-          if (!entered) {
-            setLoading(false);
-            return;
+          const detected = await autoDetectSharedPath(DEFAULT_BUTTONS_HISTORY_PATH);
+          if (detected) {
+            historyPath = detected;
+            evalTS("saveButtonsHistoryPath", detected);
+          } else {
+            const entered = window.prompt(
+              "Путь к папке для истории кнопок на Google Drive (каждая кнопка — отдельный файл в ней):",
+              DEFAULT_BUTTONS_HISTORY_PATH
+            );
+            if (!entered) {
+              setLoading(false);
+              return;
+            }
+            historyPath = entered;
+            evalTS("saveButtonsHistoryPath", entered);
           }
-          historyPath = entered;
-          evalTS("saveButtonsHistoryPath", entered);
         }
         const list = await loadButtonHistory(historyPath);
         setEntries(list);
