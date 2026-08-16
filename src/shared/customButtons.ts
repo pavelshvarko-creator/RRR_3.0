@@ -7,7 +7,8 @@ export type CustomButtonAction =
 export type CustomButtonDef = {
   id: string;
   tooltip: string; // подсказка на самой кнопке
-  description: string; // отдельный текст — виден при наведении на строку в Истории
+  description: string; // отдельный текст — виден во всплывающем окне при наведении на строку в Истории
+  descriptionGifDataUrl: string | null; // гифка (как есть, без пересжатия — иначе слетит анимация), вместо описания или вместе с ним
   action: CustomButtonAction;
   iconDataUrl: string | null; // уже уменьшенная (высота <= 32px) PNG data URL, или null — тогда текстовый фолбэк как у остальных кнопок
   iconWidth: number; // натуральная ширина иконки после масштабирования, px
@@ -23,6 +24,7 @@ export type ButtonHistoryEntry = {
   author: string;
   tooltip: string;
   description: string;
+  descriptionGifDataUrl: string | null;
   action: CustomButtonAction;
   iconDataUrl: string | null;
   iconWidth: number;

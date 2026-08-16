@@ -31,6 +31,29 @@ export function loadAndScaleIcon(file: File): Promise<{ dataUrl: string; width: 
   });
 }
 
+// Максимум для гифки описания — это данные, которые целиком лежат в JSON-
+// файле истории кнопок (см. history.ts), а не в самом расширении, поэтому
+// разумный потолок на размер важен, чтобы один человек случайно не раздул
+// свой файл истории до десятков МБ.
+export const MAX_DESCRIPTION_GIF_BYTES = 5 * 1024 * 1024;
+
+// В отличие от loadAndScaleIcon — тут НЕЛЬЗЯ прогонять файл через
+// canvas.drawImage()/toDataURL(): это рисует только первый кадр и вернувшийся
+// PNG уже статичный, анимация гифки терялась бы безвозвратно. Поэтому просто
+// читаем файл как есть, с полным data URL (не срезая префикс, как в
+// readFileAsBase64) — этот же data URL идёт прямо в src у <img>.
+export function readImageAsDataURL(file: File): Promise<string> {
+  if (file.size > MAX_DESCRIPTION_GIF_BYTES) {
+    return Promise.reject(new Error(`Файл слишком большой (${(file.size / 1024 / 1024).toFixed(1)} МБ) — максимум 5 МБ.`));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Не удалось прочитать файл."));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+}
+
 export function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

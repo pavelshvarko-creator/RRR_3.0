@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { CustomButtonDef, CustomButtonAction, ButtonHistoryEntry } from "../../shared/customButtons";
-import { loadAndScaleIcon, readFileAsBase64 } from "../lib/buttons/icon";
+import { loadAndScaleIcon, readFileAsBase64, readImageAsDataURL } from "../lib/buttons/icon";
 import { ButtonHistoryList } from "./ButtonHistoryList";
 
 type ActionKind = CustomButtonAction["kind"];
@@ -41,6 +41,7 @@ export const AddButtonDialog = ({
 
   const [tooltip, setTooltip] = useState(editingDef?.tooltip || "");
   const [description, setDescription] = useState(editingDef?.description || "");
+  const [descriptionGifDataUrl, setDescriptionGifDataUrl] = useState<string | null>(editingDef?.descriptionGifDataUrl ?? null);
   const [actionKind, setActionKind] = useState<ActionKind>(seed?.actionKind || "script");
   const [code, setCode] = useState(seed?.code || "");
   const [linkUrl, setLinkUrl] = useState(seed?.linkUrl || "");
@@ -56,6 +57,16 @@ export const AddButtonDialog = ({
       const { dataUrl, width } = await loadAndScaleIcon(file);
       setIconDataUrl(dataUrl);
       setIconWidth(width);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  };
+
+  const handleDescriptionGifChange = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const dataUrl = await readImageAsDataURL(file);
+      setDescriptionGifDataUrl(dataUrl);
     } catch (e: any) {
       setError(e?.message || String(e));
     }
@@ -102,6 +113,7 @@ export const AddButtonDialog = ({
       id: editingDef?.id || makeId(),
       tooltip: tooltip.trim(),
       description: description.trim(),
+      descriptionGifDataUrl,
       action,
       iconDataUrl,
       iconWidth,
@@ -166,8 +178,21 @@ export const AddButtonDialog = ({
             </label>
 
             <label className="rrr-modal-field">
-              Описание (видно в Истории при наведении на строку)
+              Описание (видно во всплывающем окне в Истории при наведении на строку)
               <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </label>
+
+            <label className="rrr-modal-field">
+              Гифка для описания (необязательно, до 5 МБ — вместо описания или вместе с ним)
+              <input type="file" accept="image/gif" onChange={(e) => handleDescriptionGifChange(e.target.files?.[0])} />
+              {descriptionGifDataUrl && (
+                <span className="rrr-modal-gif-preview-wrap">
+                  <img src={descriptionGifDataUrl} alt="" className="rrr-modal-gif-preview" />
+                  <button type="button" className="rrr-modal-gif-remove" onClick={() => setDescriptionGifDataUrl(null)}>
+                    ✕
+                  </button>
+                </span>
+              )}
             </label>
 
             {error && <div className="rrr-collects-status rrr-collects-status--error">{error}</div>}
