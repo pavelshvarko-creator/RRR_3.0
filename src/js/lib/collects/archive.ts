@@ -1,12 +1,33 @@
-import { fs, path } from "../cep/node";
+import { fs, path, child_process } from "../cep/node";
 
-// adm-zip — уже используемая в update.ts зависимость (installModules в
-// cep.config.ts), require() напрямую как там, а не встроенный Node-модуль.
+// adm-zip грузит весь файл разом через fs.readFileSync — для архивов больше
+// 2 ГБ это падает с "File size (...) is greater than 2 GB" (встроенное
+// ограничение самого Node.js на readFile/readFileSync, а не баг adm-zip), а
+// архивные коллекты регулярно крупнее. Windows начиная с 10 (1803+) несёт
+// встроенный bsdtar (System32\tar.exe), который распаковывает .zip потоково,
+// без такого ограничения — используем его как основной путь, adm-zip как
+// запасной на случай, если tar.exe почему-то недоступен (для файлов ≤2 ГБ
+// ограничение роли не играет).
+const SYSTEM32_TAR_PATH = path.join(process.env.WINDIR || process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+
+function extractWithTar(zipPath: string, targetDir: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child_process.execFile(SYSTEM32_TAR_PATH, ["-xf", zipPath, "-C", targetDir], { windowsHide: true }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 export async function extractZipTo(zipPath: string, targetDir: string): Promise<void> {
-  const AdmZip = require("adm-zip");
   await fs.promises.mkdir(targetDir, { recursive: true });
-  const zip = new AdmZip(zipPath);
-  zip.extractAllTo(targetDir, true);
+  try {
+    await extractWithTar(zipPath, targetDir);
+  } catch (_) {
+    const AdmZip = require("adm-zip");
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(targetDir, true);
+  }
 }
 
 // После импорта нужных композиций из архивного коллекта распакованная папка
