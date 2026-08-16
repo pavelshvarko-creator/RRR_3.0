@@ -1050,6 +1050,7 @@ function applyControllers() {
   // (без parent) слой внутри прекомпа, имя контроллера — по имени слоя.
   // Position — аддитивный офсет, Scale — множитель (100 = без изменений).
   var count = 0;
+  var skipped: string[] = [];
   for (var i = 1; i <= innerComp.numLayers; i++) {
     var layer = innerComp.layer(i);
     if (layer instanceof CameraLayer || layer instanceof LightLayer) continue;
@@ -1061,22 +1062,40 @@ function applyControllers() {
     var scl = transform.property("ADBE Scale");
     if (!pos || !scl) continue;
 
-    var layerLabel = layer.name;
-    var posCtrlName = layerLabel + "_Position";
-    var sclCtrlName = layerLabel + "_Scale";
-    getOrAddEffect(selectedLayerOnTimeline, "ADBE Point Control", posCtrlName, [0, 0]);
-    getOrAddEffect(selectedLayerOnTimeline, "ADBE Slider Control", sclCtrlName, 100);
+    // Один проблемный слой (см. попытку/перехват ниже) не должен обрывать
+    // обработку остальных непривязанных слоёв в этом же прекомпе.
+    try {
+      var layerLabel = layer.name;
+      var posCtrlName = layerLabel + "_Position";
+      var sclCtrlName = layerLabel + "_Scale";
+      getOrAddEffect(selectedLayerOnTimeline, "ADBE Point Control", posCtrlName, [0, 0]);
+      getOrAddEffect(selectedLayerOnTimeline, "ADBE Slider Control", sclCtrlName, 100);
 
-    var posExpr = 'var p = comp("' + escName(outerComp.name) + '").layer(' + outerLayerIndex + ').effect("' + escName(posCtrlName) + '")("Point");\n' +
-      'value + (value.length==3 ? [p[0], p[1], 0] : p);';
-    var sclExpr = 'var s = comp("' + escName(outerComp.name) + '").layer(' + outerLayerIndex + ').effect("' + escName(sclCtrlName) + '")("Slider")/100;\n' +
-      'value * s;';
-    pos.expression = posExpr;
-    scl.expression = sclExpr;
-    count++;
+      var posExpr = 'var p = comp("' + escName(outerComp.name) + '").layer(' + outerLayerIndex + ').effect("' + escName(posCtrlName) + '")("Point");\n' +
+        'value + (value.length==3 ? [p[0], p[1], 0] : p);';
+      var sclExpr = 'var s = comp("' + escName(outerComp.name) + '").layer(' + outerLayerIndex + ').effect("' + escName(sclCtrlName) + '")("Slider")/100;\n' +
+        'value * s;';
+      // "Separate Dimensions" (ПКМ по Position/Scale в таймлайне) прячет саму
+      // комбинированную многомерную property — AE.expression на ней падает с
+      // "Can not 'set expression' with this property, because the property or
+      // a parent property is hidden". Возвращаем обратно к обычному виду —
+      // значения/ключи при этом не теряются, это стандартное поведение самого
+      // AE при переключении этой опции туда и обратно.
+      if (pos.dimensionsSeparated) pos.dimensionsSeparated = false;
+      if (scl.dimensionsSeparated) scl.dimensionsSeparated = false;
+      pos.expression = posExpr;
+      scl.expression = sclExpr;
+      count++;
+    } catch (e: any) {
+      skipped.push(layer.name + " (" + (e?.message || String(e)) + ")");
+    }
   }
 
-  alert("Done!\nReplaced with clean source & Controllers added.\n" + count + " unparented layer(s) got their own Position/Scale controllers.");
+  var doneMessage = "Done!\nReplaced with clean source & Controllers added.\n" + count + " unparented layer(s) got their own Position/Scale controllers.";
+  if (skipped.length > 0) {
+    doneMessage += "\n\nПропущено (" + skipped.length + "): " + skipped.join("; ");
+  }
+  alert(doneMessage);
 }
 
 // === ЭКСПОРТ ПАРАМЕТРОВ СО КЛЮЧАМИ В ESSENTIAL GRAPHICS ===
