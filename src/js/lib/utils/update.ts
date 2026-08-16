@@ -87,7 +87,23 @@ function elevateAndCopyDir(sourceDir: string, destDir: string): void {
 // переустановки через .zxp. После этого нужен перезапуск AE, чтобы CEP
 // перечитал обновлённые файлы.
 export const downloadAndInstallUpdate = async (downloadUrl: string, allowElevation: boolean): Promise<void> => {
-  const AdmZip = require("adm-zip");
+  // require() ищет node_modules/adm-zip рядом с УЖЕ установленной (ещё не
+  // обновлённой) копией расширения — если эта копия повреждена/неполная
+  // (например, не полностью распаковался предыдущий .zxp), здесь падает
+  // голый "Cannot find module" без единого намёка на причину. Ловим отдельно
+  // и явно называем вероятную причину и правильное действие — то же самое,
+  // из-за чего пришлось несколько раз разбираться с "null" в других местах
+  // этой панели, чтобы не повторять ту же голую ошибку здесь.
+  let AdmZip: any;
+  try {
+    AdmZip = require("adm-zip");
+  } catch (e: any) {
+    throw new Error(
+      "Установленная копия расширения повреждена или неполная (нет модуля adm-zip: " +
+        (e?.message || String(e)) +
+        "). Автообновление на месте невозможно — переустановите расширение вручную через .zxp (см. «Скачать последнюю версию»)."
+    );
+  }
 
   const res = await fetch(downloadUrl);
   if (!res.ok) {
