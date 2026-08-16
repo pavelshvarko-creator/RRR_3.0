@@ -753,36 +753,73 @@ function processCropResolutionProject(key: string) {
   }
 }
 
-// Ctrl+Click на 9:16 / 4:3 / 1:1: работаем ТОЛЬКО с выделенным слоем
-// на таймлайне (source которого — композиция) — заменяем композицию в слое.
+// Ctrl+Click на 9:16 / 4:3 / 1:1 / 16:9: работаем со ВСЕМИ выделенными
+// слоями на таймлайне (у которых source — композиция), а не только с
+// первым — по аналогии с обычным кликом в панели Project (см.
+// processCropResolutionProject). Несколько слоёв с ОДНИМ и тем же source
+// получают ОДНУ общую копию (иначе — коллизия имён от двух одинаковых
+// дублей и лишняя работа), а не по копии на каждый слой.
 function processCropResolutionTimeline(key: string) {
   var target = RESOLUTIONS[key];
   var proj = app.project;
   var active = proj.activeItem;
 
-  if (!(active && active instanceof CompItem && active.selectedLayers.length === 1)) {
-    alert("Выделите один слой на таймлайне (source которого — композиция)!");
-    return;
-  }
-  var selLayer = active.selectedLayers[0];
-  if (!(selLayer instanceof AVLayer) || !selLayer.source || !(selLayer.source instanceof CompItem)) {
-    alert("Выделенный слой на таймлайне не является композицией.");
-    return;
-  }
-  var srcComp = selLayer.source;
-  if (srcComp.width === target.w && srcComp.height === target.h) {
-    alert("Эта композиция уже в разрешении " + target.w + "x" + target.h + " — менять нечего.");
+  if (!(active && active instanceof CompItem && active.selectedLayers.length > 0)) {
+    alert("Выделите хотя бы один слой на таймлайне (source которого — композиция)!");
     return;
   }
 
-  app.beginUndoGroup("Resize " + key);
-  unlockAllLayers(srcComp);
-  var newComp = cropResizeComp(srcComp, target.w, target.h);
-  newComp.name = buildTimelineName(srcComp.name, target.w, target.h);
-  applyVersionLabel(newComp);
-  selLayer.replaceSource(newComp, false);
-  alert("✅ Готово!\nСоздана копия \"" + newComp.name + "\" и подставлена в выделенный слой.\nОригинал не изменён.");
-  app.endUndoGroup();
+  var validLayers: AVLayer[] = [];
+  for (var i = 0; i < active.selectedLayers.length; i++) {
+    var l = active.selectedLayers[i];
+    if (l instanceof AVLayer && l.source && l.source instanceof CompItem) validLayers.push(l);
+  }
+  if (validLayers.length === 0) {
+    alert("Ни один из выделенных слоёв не является композицией.");
+    return;
+  }
+
+  var isBatch = validLayers.length > 1;
+  app.beginUndoGroup("Resize " + key + (isBatch ? " (Batch)" : ""));
+  try {
+    var newCompsBySourceId: { [id: number]: CompItem } = {};
+    var replacedNames: string[] = [];
+    var skippedSameRes: string[] = [];
+    for (var j = 0; j < validLayers.length; j++) {
+      var layer = validLayers[j];
+      var srcComp = layer.source as CompItem;
+      if (srcComp.width === target.w && srcComp.height === target.h) {
+        if (indexOfStr(skippedSameRes, srcComp.name) === -1) skippedSameRes.push(srcComp.name);
+        continue;
+      }
+      var newComp = newCompsBySourceId[srcComp.id];
+      if (!newComp) {
+        unlockAllLayers(srcComp);
+        newComp = cropResizeComp(srcComp, target.w, target.h);
+        newComp.name = buildTimelineName(srcComp.name, target.w, target.h);
+        applyVersionLabel(newComp);
+        newCompsBySourceId[srcComp.id] = newComp;
+        replacedNames.push(newComp.name);
+      }
+      layer.replaceSource(newComp, false);
+    }
+
+    var msg = "";
+    if (replacedNames.length > 0) {
+      msg = "✅ Готово!\nЗаменено на слоях (" + replacedNames.length + "): " + replacedNames.join(", ") + ".\nОригиналы не изменены.";
+    }
+    if (skippedSameRes.length > 0) {
+      msg += (msg ? "\n\n" : "") + "Уже в разрешении " + target.w + "x" + target.h + " — пропущено: " + skippedSameRes.join(", ") + ".";
+    }
+    alert(msg || "Нечего было менять.");
+  } finally {
+    app.endUndoGroup();
+  }
+}
+
+function indexOfStr(arr: string[], value: string): number {
+  for (var i = 0; i < arr.length; i++) if (arr[i] === value) return i;
+  return -1;
 }
 
 // Специальная механика (16:9, 1:1): работает только с исходником 1080x1350 (4:3).
