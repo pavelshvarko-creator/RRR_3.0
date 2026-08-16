@@ -22,7 +22,26 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm i --legacy-peer-deps
+
+      # И `npm run build`, и `npm run zxp` сами делают `rimraf dist/*` перед
+      # сборкой — если собирать оба артефакта подряд, каждый следующий шаг
+      # стирал бы результат предыдущего. Поэтому после каждой сборки сразу
+      # уносим готовый файл в отдельную папку release-assets/ (вне dist/),
+      # прежде чем запускать следующую сборку.
+      - run: New-Item -ItemType Directory -Force -Path release-assets
+
+      # Обычный .zip от dist/cep — именно его ищет и качает кнопка
+      # "Обновить" в гайде (checkForUpdate/downloadAndInstallUpdate в
+      # update.ts), чтобы обновить уже установленную копию на месте, без
+      # переустановки через .zxp.
+      - run: npm run build
+      - run: node scripts/make-release-zip.cjs
+      - run: Copy-Item -Path dist/release/*.zip -Destination release-assets/
+
+      # Подписанный .zxp — для самой первой установки (Extension Manager/
+      # ZXP Installer), когда расширения ещё нет на машине вообще.
       - run: npm run zxp
+      - run: Copy-Item -Path dist/zxp/*.zxp -Destination release-assets/
 
       - name: GitHub Release
         uses: softprops/action-gh-release@v1
@@ -30,4 +49,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: "./dist/zxp/*"
+          files: "release-assets/*"

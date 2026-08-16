@@ -6,11 +6,15 @@ import { version as currentVersion } from "../../../shared/shared";
 // собственный репозиторий RRR_3.0, не RRR-CEP (у неё своя история релизов).
 const REPO = "pavelshvarko-creator/RRR_3.0";
 
-// checkForUpdate ниже всегда возвращает "обновлений нет", пока сама
-// автопроверка не включена сознательно — репозиторий выше подготовлен
-// заранее, но ссылка "Скачать последнюю версию" в гайде работает независимо
-// от этого флага.
-const UPDATES_ENABLED = false;
+// Включено: с этого релиза workflow (.github/workflows/main.yml) публикует
+// в GitHub Release не только .zxp, но и обычный .zip от dist/cep — именно
+// его ищет downloadAndInstallUpdate ниже, чтобы обновить уже установленную
+// копию НА МЕСТЕ, без переустановки через .zxp. Тихая автопроверка при
+// каждом запуске AE (main.tsx) работает без прав администратора — если
+// расширение стоит в защищённой папке (Program Files), она молча не
+// сработает, и тогда сработает уже кнопка "Обновить" в гайде (allowElevation
+// = true, один системный запрос прав, как у любого установщика).
+const UPDATES_ENABLED = true;
 
 export type UpdateCheckResult = {
   hasUpdate: boolean;
