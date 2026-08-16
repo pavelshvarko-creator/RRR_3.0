@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DEFAULT_COLLECTS_ROOT } from "../../shared/defaults";
+import { autoDetectCollectsRoot } from "../lib/collects/driveIndex";
 
 // Показывается один раз при первом запуске панели (или после переустановки
 // zxp, если настройки почему-то не сохранились) — раньше ник и путь к
@@ -12,9 +13,18 @@ export const SetupDialog = ({ onSubmit }: { onSubmit: (name: string, collectsRoo
   const [name, setName] = useState("");
   // Предзаполнено дефолтным путём (одинаковым почти у всей команды) —
   // редактируемо, не жёстко задано: у кого буква диска отличается, поле
-  // просто правится перед сохранением.
+  // просто правится перед сохранением. При монтировании пробуем найти
+  // реальную букву диска автоматически (перебором) и подменяем дефолт на
+  // неё, если нашли — так на большинстве машин вообще ничего править не
+  // придётся.
   const [collectsRoot, setCollectsRoot] = useState(DEFAULT_COLLECTS_ROOT);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    autoDetectCollectsRoot().then((detected) => {
+      if (detected) setCollectsRoot(detected);
+    });
+  }, []);
 
   const handleSubmit = () => {
     if (!name.trim()) {

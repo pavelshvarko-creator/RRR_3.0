@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { evalTS, listenTS } from "../lib/utils/bolt";
 import { path } from "../lib/cep/node";
-import { loadOrBuildIndex, searchIndex, findAepFiles, findArchiveFiles, type CollectsIndex, type IndexedFolder } from "../lib/collects/driveIndex";
+import { loadOrBuildIndex, searchIndex, findAepFiles, findArchiveFiles, autoDetectCollectsRoot, type CollectsIndex, type IndexedFolder } from "../lib/collects/driveIndex";
 import { hydrateWithProgress, copyFileWithProgress } from "../lib/collects/hydrate";
 import { extractZipTo } from "../lib/collects/archive";
 import { DEFAULT_COLLECTS_ROOT } from "../../shared/defaults";
@@ -144,15 +144,23 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
     (async () => {
       let savedRoot = await evalTS("getSavedCollectsRoot");
       if (!savedRoot) {
-        // Путь — то, что впишет сам пользователь; буква диска Google Drive
-        // (G:, H: и т.д.) у разных людей своя, нигде дальше не хардкодится.
-        const entered = window.prompt("Укажите путь к папке коллектов на Shared Drive:", DEFAULT_COLLECTS_ROOT);
-        if (!entered) {
-          setIndexStatus({ phase: "error", message: "Путь к коллектам не задан." });
-          return;
+        // Буква диска Google Drive (G:, H: и т.д.) своя у каждого — сама
+        // подпапка после неё одна на всю команду, поэтому сперва пробуем
+        // найти её автоматически перебором букв, и только если не нашли —
+        // спрашиваем пользователя (ничего не хардкодим принудительно).
+        const detected = await autoDetectCollectsRoot();
+        if (detected) {
+          savedRoot = detected;
+          evalTS("saveCollectsRoot", detected);
+        } else {
+          const entered = window.prompt("Укажите путь к папке коллектов на Shared Drive:", DEFAULT_COLLECTS_ROOT);
+          if (!entered) {
+            setIndexStatus({ phase: "error", message: "Путь к коллектам не задан." });
+            return;
+          }
+          savedRoot = entered;
+          evalTS("saveCollectsRoot", entered);
         }
-        savedRoot = entered;
-        evalTS("saveCollectsRoot", entered);
       }
       await loadIndexForRoot(savedRoot);
     })();
