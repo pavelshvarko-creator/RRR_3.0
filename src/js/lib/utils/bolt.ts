@@ -96,7 +96,14 @@ export const evalTS = <
           //@ts-ignore
           if (res === "undefined") return resolve();
           const parsed = JSON.parse(res);
+          // Функции на стороне ExtendScript могут абсолютно легитимно
+          // возвращать null (например getCurrentProjectFolder — если проект
+          // ещё не сохранён). Без проверки "parsed &&" typeof parsed.name
+          // бросал бы TypeError на null, и этот catch ниже отклонял бы
+          // промис голой строкой "null" — вместо того чтобы разрешить его
+          // тем самым null, как и должно быть для успешного результата.
           if (
+            parsed &&
             typeof parsed.name === "string" &&
             (<string>parsed.name).toLowerCase().includes("error")
           ) {
