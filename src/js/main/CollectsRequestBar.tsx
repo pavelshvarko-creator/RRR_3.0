@@ -3,7 +3,7 @@ import { evalTS, listenTS } from "../lib/utils/bolt";
 import { path } from "../lib/cep/node";
 import { loadOrBuildIndex, searchIndex, findAepFiles, findArchiveFiles, autoDetectCollectsRoot, type CollectsIndex, type IndexedFolder } from "../lib/collects/driveIndex";
 import { hydrateWithProgress, copyFileWithProgress } from "../lib/collects/hydrate";
-import { extractZipTo } from "../lib/collects/archive";
+import { extractZipTo, cleanupUnusedExtractedFiles } from "../lib/collects/archive";
 import { DEFAULT_COLLECTS_ROOT } from "../../shared/defaults";
 import { IconButton } from "./IconButton";
 
@@ -29,6 +29,10 @@ type CompRow = {
   h: number;
   isNested: boolean;
   checked: boolean;
+  // Папка, куда был распакован архив (только для архивных коллектов — для
+  // голого .aep на Drive всегда null). После импорта именно в ней остаётся
+  // весь лишний, неиспользуемый футаж — см. cleanupUnusedExtractedFiles.
+  extractedRoot: string | null;
 };
 
 type ExpandState =
@@ -211,6 +215,10 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
         throw new Error(`[${label}] ${e?.message ?? String(e)}`);
       }
     };
+    // null для голого .aep на Drive — там нечего чистить после импорта,
+    // футаж остаётся ровно там, где лежал. Заполняется ниже, только если
+    // коллект оказался архивом.
+    let extractedRoot: string | null = null;
     try {
       let aepFiles = await step("findAepFiles", () => findAepFiles(match.path));
 
@@ -239,6 +247,7 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
           setExpandState({ phase: "extracting" });
           const targetDir = path.join(projectFolder, match.name);
           await step("extractZipTo", () => extractZipTo(archivePath, targetDir));
+          extractedRoot = targetDir;
           extractedAeps.push(...(await step("findAepFiles:extracted", () => findAepFiles(targetDir))));
         }
         if (extractedAeps.length === 0) {
@@ -273,6 +282,7 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
             h: c.h,
             isNested: c.isNested,
             checked: false,
+            extractedRoot,
           });
         }
       }
@@ -311,6 +321,11 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
       list.push(row);
       byAepPath.set(row.aepPath, list);
     }
+    // Для архивных коллектов — какие файлы внутри распакованной папки
+    // РЕАЛЬНО остаются нужны живому проекту после этого импорта (см. ниже,
+    // заполняется по-разному для "Облака"/"Скачивания"), чтобы после общего
+    // цикла подчистить всё остальное содержимое этой папки одним проходом.
+    const keepPathsByRoot = new Map<string, Set<string>>();
     for (const [aepPath, rows] of byAepPath) {
       const targets = rows.map((r) => ({ compName: r.compName, lang: r.lang }));
       try {
@@ -320,6 +335,13 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
           continue;
         }
         log.push(`${rows[0].projectFolderName} — добавлено в проект: ${result.keptCompNames.join(", ")}`);
+
+        const extractedRoot = rows[0].extractedRoot;
+        let keepSet: Set<string> | null = null;
+        if (extractedRoot) {
+          keepSet = keepPathsByRoot.get(extractedRoot) || new Set<string>();
+          keepPathsByRoot.set(extractedRoot, keepSet);
+        }
 
         // "Скачивание" — не просто прочитать файл (это не гарантирует, что
         // он останется локальным копией, и уж точно не меняет путь, на
@@ -334,6 +356,9 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
           const projectFolder = await evalTS("getCurrentProjectFolder");
           if (!projectFolder) {
             log.push(`${rows[0].projectFolderName} — скачивание пропущено: сохраните текущий проект, чтобы было куда класть файлы.`);
+            // Копирования не было — живой проект по-прежнему ссылается на
+            // исходные пути внутри распакованной папки, их и нужно сохранить.
+            if (keepSet) for (const p of result.footagePaths) keepSet.add(p);
           } else {
             const destFolder = path.join(projectFolder, rows[0].projectFolderName);
             const usedNames = new Set<string>();
@@ -351,15 +376,29 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
                   setDownloadStatus(`${rows[0].projectFolderName}: скачивание файлов (${i + 1}/${result.footagePaths.length}) — ${percent}%`)
                 );
                 const relinkResult = await evalTS("relinkFootage", srcPath, destPath);
-                if (!relinkResult.ok) log.push(`${rows[0].projectFolderName} — не удалось переподключить ${baseName}: ${relinkResult.message}`);
-                else succeeded++;
+                if (!relinkResult.ok) {
+                  log.push(`${rows[0].projectFolderName} — не удалось переподключить ${baseName}: ${relinkResult.message}`);
+                  // Переподключение не удалось — живой проект остался на
+                  // старом пути, его и нельзя удалять при чистке.
+                  if (keepSet) keepSet.add(srcPath);
+                } else {
+                  succeeded++;
+                  // Переподключили на копию внутри той же папки — теперь
+                  // нужна именно она, а не оригинал по вложенному пути.
+                  if (keepSet) keepSet.add(destPath);
+                }
               } catch (e: any) {
                 log.push(`${rows[0].projectFolderName} — не удалось скачать ${baseName}: ${e?.message || String(e)}`);
+                if (keepSet) keepSet.add(srcPath);
               }
             }
             log.push(`${rows[0].projectFolderName} — скачано и переподключено ${succeeded}/${result.footagePaths.length} файлов в ${destFolder}`);
           }
           setDownloadStatus(null);
+        } else if (keepSet) {
+          // "Облако": футаж как ссылался, так и продолжает ссылаться прямо
+          // на файлы внутри распакованной папки — без изменений.
+          for (const p of result.footagePaths) keepSet.add(p);
         }
 
         // Сборка мини-коллекта (Collect Files) — только в режиме "Скачивание".
@@ -401,6 +440,20 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
         log.push(`${rows[0].projectFolderName} — ошибка: ${e?.message || String(e)}`);
       }
     }
+
+    // Чистка распакованных архивов — после ВСЕХ групп сразу (а не по ходу
+    // цикла): если из одного архива импортировали несколько .aep, keepSet
+    // для общей extractedRoot должен успеть накопить нужные пути от каждой
+    // из них, прежде чем что-либо удалять.
+    for (const [extractedRoot, keepSet] of keepPathsByRoot) {
+      try {
+        const { deletedFiles } = await cleanupUnusedExtractedFiles(extractedRoot, Array.from(keepSet));
+        if (deletedFiles > 0) log.push(`Очищено ${deletedFiles} неиспользуемых файлов в ${extractedRoot}`);
+      } catch (e: any) {
+        log.push(`Не удалось очистить ${extractedRoot}: ${e?.message || String(e)}`);
+      }
+    }
+
     // Одна запись истории на весь клик "Импорт" (а не на каждую строку лога) —
     // так у неё есть единственная, однозначная папка-источник, по которой
     // можно заново открыть результат поиска этого же коллекта.
