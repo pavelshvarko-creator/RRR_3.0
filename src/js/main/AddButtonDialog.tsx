@@ -72,6 +72,37 @@ export const AddButtonDialog = ({
     }
   };
 
+  // Ctrl+V в поле "Описание". Два случая клипборда: скопирован сам ФАЙЛ
+  // (например Ctrl+C по .gif в проводнике) — тогда clipboardData.files несёт
+  // оригинальные байты, анимация сохранится в точности как при выборе файла;
+  // либо скопировано "изображение" (например через "Копировать картинку" в
+  // браузере) — тогда в clipboardData.items лежит уже растровый снимок, и
+  // большинство приложений/ОС на этом этапе сворачивают гифку до одного
+  // кадра — это ограничение самого системного буфера обмена, а не наше.
+  const handleDescriptionPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      const fileArr = Array.from(files);
+      const file = fileArr.find((f) => f.type.startsWith("image/")) || fileArr[0];
+      e.preventDefault();
+      handleDescriptionGifChange(file);
+      return;
+    }
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const blob = items[i].getAsFile();
+          if (blob) {
+            e.preventDefault();
+            handleDescriptionGifChange(blob);
+            return;
+          }
+        }
+      }
+    }
+  };
+
   const handlePresetChange = async (file: File | undefined) => {
     if (!file) return;
     try {
@@ -179,11 +210,16 @@ export const AddButtonDialog = ({
 
             <label className="rrr-modal-field">
               Описание (видно во всплывающем окне в Истории при наведении на строку)
-              <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+              <textarea
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onPaste={handleDescriptionPaste}
+              />
             </label>
 
             <label className="rrr-modal-field">
-              Гифка для описания (необязательно, до 5 МБ — вместо описания или вместе с ним)
+              Гифка для описания (необязательно, до 5 МБ — вместо описания, вместе с ним, или Ctrl+V в поле описания)
               <input type="file" accept="image/gif" onChange={(e) => handleDescriptionGifChange(e.target.files?.[0])} />
               {descriptionGifDataUrl && (
                 <span className="rrr-modal-gif-preview-wrap">

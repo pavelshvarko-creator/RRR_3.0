@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { version } from "../../shared/shared";
 import { evalTS, openLinkInBrowser, dispatchTS } from "../lib/utils/bolt";
-import { DEFAULT_COLLECTS_ROOT } from "../../shared/defaults";
+import { DEFAULT_COLLECTS_ROOT, DEFAULT_BUTTONS_HISTORY_PATH } from "../../shared/defaults";
 import "./guide.scss";
 
 // Содержимое гайда — аккордеон: заголовок с превью-«кнопками» + стрелочка, под ней текст.
@@ -77,11 +77,13 @@ export const GuideApp = () => {
   const [useIcons, setUseIcons] = useState(true);
   const [creatorName, setCreatorName] = useState("");
   const [collectsRoot, setCollectsRoot] = useState("");
+  const [buttonsHistoryPath, setButtonsHistoryPath] = useState("");
 
   useEffect(() => {
     evalTS("getIconModeSetting").then((saved) => setUseIcons(saved !== false));
     evalTS("getSavedCreatorName").then((saved) => setCreatorName(saved || ""));
     evalTS("getSavedCollectsRoot").then((saved) => setCollectsRoot(saved || DEFAULT_COLLECTS_ROOT));
+    evalTS("getSavedButtonsHistoryPath").then((saved) => setButtonsHistoryPath(saved || DEFAULT_BUTTONS_HISTORY_PATH));
   }, []);
 
   const handleCreatorNameBlur = () => {
@@ -95,6 +97,10 @@ export const GuideApp = () => {
     // старому пути — без этого события она узнала бы о новом пути только
     // после полного закрытия и повторного открытия.
     dispatchTS("collectsRootChanged", { path: trimmed });
+  };
+
+  const handleButtonsHistoryPathBlur = () => {
+    evalTS("saveButtonsHistoryPath", buttonsHistoryPath.trim());
   };
 
   const handleToggleIcons = () => {
@@ -188,6 +194,16 @@ export const GuideApp = () => {
             onChange={(e) => setCollectsRoot(e.target.value)}
             onBlur={handleCollectsRootBlur}
             placeholder={DEFAULT_COLLECTS_ROOT}
+          />
+        </label>
+        <label className="guide-settings-field">
+          <span>Путь к папке с историей кнопок на Google Drive</span>
+          <input
+            type="text"
+            value={buttonsHistoryPath}
+            onChange={(e) => setButtonsHistoryPath(e.target.value)}
+            onBlur={handleButtonsHistoryPathBlur}
+            placeholder={DEFAULT_BUTTONS_HISTORY_PATH}
           />
         </label>
       </div>
