@@ -187,6 +187,7 @@
   width: 280px;
   max-height: 320px;
   overflow-y: auto;
+  overflow-x: auto;
   background: $darker;
   border: 1px solid $dark;
   padding: 6px 8px;
@@ -205,8 +206,6 @@
   color: $font;
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 
   &:hover {
     color: $highlight;
@@ -236,9 +235,10 @@
   font-size: 10px;
   color: $font;
   cursor: pointer;
+  // Не обрезаем длинные имена композиций многоточием — панель теперь
+  // прокручивается по горизонтали (см. .rrr-collects-panel), так что полное
+  // имя всегда доступно прокруткой, а не теряется безвозвратно.
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 
   &:hover {
     color: $highlight;
