@@ -40,8 +40,28 @@ async function walk(dir: string, depth: number, out: IndexedFolder[]): Promise<v
 }
 
 export async function buildIndex(root: string): Promise<CollectsIndex> {
+  // Ошибку чтения самой корневой папки НЕ проглатываем (в отличие от
+  // вложенных подпапок в walk() — там один нечитаемый креатив не должен
+  // ронять весь индекс). Раньше любой сбой здесь (нет доступа, Google Drive
+  // ещё не отдал список содержимого папки и т.п.) тихо превращался в "0
+  // папок", неотличимое от "путь и правда пустой".
+  let rootEntries: any[];
+  try {
+    rootEntries = await fs.promises.readdir(root, { withFileTypes: true });
+  } catch (e: any) {
+    throw new Error(`Не удалось прочитать папку коллектов "${root}": ${e?.message || String(e)}`);
+  }
+
   const folders: IndexedFolder[] = [];
-  await walk(root, 1, folders);
+  for (const entry of rootEntries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "$RECYCLE.BIN" || entry.name.indexOf(".") === 0) continue;
+    const fullPath = path.join(root, entry.name);
+    folders.push({ name: entry.name, path: fullPath, depth: 1 });
+    if (folders.length >= MAX_FOLDERS) break;
+    await walk(fullPath, 2, folders);
+  }
+
   const index: CollectsIndex = { builtAt: Date.now(), root, folders };
   try {
     await fs.promises.mkdir(path.dirname(CACHE_PATH), { recursive: true });
