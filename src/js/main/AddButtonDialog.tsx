@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { CustomButtonDef, CustomButtonAction, ButtonHistoryEntry } from "../../shared/customButtons";
-import { loadAndScaleIcon, readFileAsBase64, readImageAsDataURL } from "../lib/buttons/icon";
+import { loadAndScaleIcon, readFileAsBase64, readFileAsText, readImageAsDataURL } from "../lib/buttons/icon";
 import { ButtonHistoryList } from "./ButtonHistoryList";
 
 type ActionKind = CustomButtonAction["kind"];
@@ -103,6 +103,16 @@ export const AddButtonDialog = ({
     }
   };
 
+  const handleCodeFileChange = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const text = await readFileAsText(file);
+      setCode(text);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  };
+
   const handlePresetChange = async (file: File | undefined) => {
     if (!file) return;
     try {
@@ -178,6 +188,15 @@ export const AddButtonDialog = ({
             {(actionKind === "script" || actionKind === "expression") && (
               <label className="rrr-modal-field">
                 Код
+                <input
+                  type="file"
+                  accept=".jsx,.jsxbin,.js,.txt"
+                  onChange={(e) => {
+                    handleCodeFileChange(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <span className="rrr-modal-hint">Можно загрузить файлом или ввести/вставить код вручную ниже.</span>
                 <textarea
                   rows={6}
                   value={code}

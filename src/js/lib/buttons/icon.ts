@@ -54,6 +54,15 @@ export function readImageAsDataURL(file: File): Promise<string> {
   });
 }
 
+export function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Не удалось прочитать файл."));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsText(file);
+  });
+}
+
 export function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
