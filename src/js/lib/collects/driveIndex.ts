@@ -107,8 +107,12 @@ function stripTrailingVersionToken(text: string): string {
 export function searchIndex(index: CollectsIndex, query: string): IndexedFolder[] {
   const q = stripTrailingVersionToken(query.trim()).toLowerCase();
   if (!q) return [];
+  // Обычно папка креатива лежит на втором уровне (root -> категория ->
+  // креатив), но архивные коллекты иногда лежат прямо в корне (depth 1) —
+  // ограничение только depth===2 делало такие коллекты ненаходимыми поиском
+  // при полностью готовом индексе.
   return index.folders
-    .filter((f) => f.depth === 2 && f.name.toLowerCase().indexOf(q) !== -1)
+    .filter((f) => f.name.toLowerCase().indexOf(q) !== -1)
     .sort((a, b) => {
       const aStarts = a.name.toLowerCase().indexOf(q) === 0 ? 0 : 1;
       const bStarts = b.name.toLowerCase().indexOf(q) === 0 ? 0 : 1;
