@@ -6,21 +6,57 @@ export type IndexedFolder = {
   name: string;
   path: string;
   depth: number;
+  // true — сама запись это .zip-файл (коллект лежит архивом прямо внутри
+  // папки-категории, без своей обёрточной папки), false — обычная папка.
+  isArchiveFile: boolean;
 };
 
 export type CollectsIndex = {
   builtAt: number;
   root: string;
   folders: IndexedFolder[];
+  schemaVersion: number;
 };
 
 const CACHE_PATH = path.join(os.homedir(), "AppData", "Roaming", "RRR_3.0-Collects", "index.json");
+
+// Бампается при изменении того, ЧТО индексируется (не только формата
+// хранения) — например, когда индексатор научился видеть голые .zip-файлы,
+// которых раньше не было в индексе вообще. Без этой отсечки уже собранный
+// кэш (валиден до часа, см. loadOrBuildIndex) продолжал бы молча отдавать
+// старые, неполные результаты вплоть до истечения TTL даже после обновления
+// самого расширения.
+const INDEX_SCHEMA_VERSION = 2;
 
 // Индексируем только до уровня папок-проектов (root -> папка приложения ->
 // папка креатива) — глубже там уже футажи/ассеты, которые для поиска по
 // названию не нужны и только замедлили бы скан.
 const MAX_DEPTH = 2;
 const MAX_FOLDERS = 50000;
+
+function shouldSkipDirEntry(name: string): boolean {
+  return name === "$RECYCLE.BIN" || name.indexOf(".") === 0;
+}
+
+// Некоторые коллекты — не папка с архивом внутри, а голый .zip-файл прямо
+// внутри папки-категории (например ".../MyScreen/26.03_MyScreen_Aquariums.zip",
+// без какой-либо обёрточной подпапки). Раньше индексатор рассматривал только
+// директории (`!entry.isDirectory() => continue`), из-за чего такие коллекты
+// не попадали в индекс вообще ни на какой глубине — искать их было
+// невозможно, даже с полностью готовым индексом.
+async function indexEntries(dir: string, entries: any[], depth: number, out: IndexedFolder[]): Promise<void> {
+  for (const entry of entries) {
+    if (out.length >= MAX_FOLDERS) return;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (shouldSkipDirEntry(entry.name)) continue;
+      out.push({ name: entry.name, path: fullPath, depth, isArchiveFile: false });
+      await walk(fullPath, depth + 1, out);
+    } else if (entry.isFile() && /\.zip$/i.test(entry.name)) {
+      out.push({ name: entry.name.replace(/\.zip$/i, ""), path: fullPath, depth, isArchiveFile: true });
+    }
+  }
+}
 
 async function walk(dir: string, depth: number, out: IndexedFolder[]): Promise<void> {
   if (depth > MAX_DEPTH || out.length >= MAX_FOLDERS) return;
@@ -30,14 +66,7 @@ async function walk(dir: string, depth: number, out: IndexedFolder[]): Promise<v
   } catch (_) {
     return;
   }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === "$RECYCLE.BIN" || entry.name.indexOf(".") === 0) continue;
-    const fullPath = path.join(dir, entry.name);
-    out.push({ name: entry.name, path: fullPath, depth });
-    if (out.length >= MAX_FOLDERS) return;
-    await walk(fullPath, depth + 1, out);
-  }
+  await indexEntries(dir, entries, depth, out);
 }
 
 export async function buildIndex(root: string): Promise<CollectsIndex> {
@@ -54,16 +83,9 @@ export async function buildIndex(root: string): Promise<CollectsIndex> {
   }
 
   const folders: IndexedFolder[] = [];
-  for (const entry of rootEntries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === "$RECYCLE.BIN" || entry.name.indexOf(".") === 0) continue;
-    const fullPath = path.join(root, entry.name);
-    folders.push({ name: entry.name, path: fullPath, depth: 1 });
-    if (folders.length >= MAX_FOLDERS) break;
-    await walk(fullPath, 2, folders);
-  }
+  await indexEntries(root, rootEntries, 1, folders);
 
-  const index: CollectsIndex = { builtAt: Date.now(), root, folders };
+  const index: CollectsIndex = { builtAt: Date.now(), root, folders, schemaVersion: INDEX_SCHEMA_VERSION };
   try {
     await fs.promises.mkdir(path.dirname(CACHE_PATH), { recursive: true });
     await fs.promises.writeFile(CACHE_PATH, JSON.stringify(index), "utf8");
@@ -79,6 +101,7 @@ export async function loadCachedIndex(root: string, maxAgeMs: number): Promise<C
     const raw = await fs.promises.readFile(CACHE_PATH, "utf8");
     const cached: CollectsIndex = JSON.parse(raw);
     if (cached.root !== root) return null;
+    if (cached.schemaVersion !== INDEX_SCHEMA_VERSION) return null;
     if (Date.now() - cached.builtAt > maxAgeMs) return null;
     return cached;
   } catch (_) {

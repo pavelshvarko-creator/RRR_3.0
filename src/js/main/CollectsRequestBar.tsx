@@ -220,13 +220,25 @@ export const CollectsRequestBar = ({ useIcons, children }: { useIcons: boolean; 
     // коллект оказался архивом.
     let extractedRoot: string | null = null;
     try {
-      let aepFiles = await step("findAepFiles", () => findAepFiles(match.path));
+      // match.path бывает либо папкой креатива (внутри которой лежит .aep
+      // или .zip), либо — если match.isArchiveFile — самим .zip-файлом без
+      // обёрточной папки; тогда искать архив ВНУТРИ match.path бессмысленно
+      // (readdir на файле упал бы с ENOTDIR) — он и есть искомый архив.
+      let aepFiles: string[] = [];
+      let archiveFiles: string[] = [];
+      if (match.isArchiveFile) {
+        archiveFiles = [match.path];
+      } else {
+        aepFiles = await step("findAepFiles", () => findAepFiles(match.path));
+        if (aepFiles.length === 0) {
+          archiveFiles = await step("findArchiveFiles", () => findArchiveFiles(match.path));
+        }
+      }
 
       // Некоторые коллекты лежат архивом, а не голым .aep — скачиваем архив
       // в папку текущего (открытого) проекта и распаковываем там же, потом
       // ищем .aep уже в распакованном.
       if (aepFiles.length === 0) {
-        const archiveFiles = await step("findArchiveFiles", () => findArchiveFiles(match.path));
         if (archiveFiles.length === 0) {
           setExpandState({ phase: "error", message: ".aep и архив не найдены внутри этой папки." });
           return;
