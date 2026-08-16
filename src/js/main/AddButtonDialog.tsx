@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CustomButtonDef, CustomButtonAction, ButtonHistoryEntry } from "../../shared/customButtons";
 import { loadAndScaleIcon, readFileAsBase64, readFileAsText, readImageAsDataURL } from "../lib/buttons/icon";
+import { ICON_LIBRARY, libraryIconToDataUrl } from "../lib/buttons/iconLibrary";
 import { ButtonHistoryList } from "./ButtonHistoryList";
 
 type ActionKind = CustomButtonAction["kind"];
@@ -226,6 +227,30 @@ export const AddButtonDialog = ({
               <input type="file" accept="image/*" onChange={(e) => handleIconChange(e.target.files?.[0])} />
               {iconDataUrl && <img src={iconDataUrl} alt="" className="rrr-modal-icon-preview" />}
             </label>
+
+            <div className="rrr-modal-field">
+              Или выбрать иконку из библиотеки (монтаж/моушн-дизайн)
+              <div className="rrr-icon-library-grid">
+                {ICON_LIBRARY.map((icon) => {
+                  const dataUrl = libraryIconToDataUrl(icon.svg);
+                  const selected = iconDataUrl === dataUrl;
+                  return (
+                    <button
+                      key={icon.name}
+                      type="button"
+                      title={icon.name}
+                      className={`rrr-icon-library-item${selected ? " rrr-icon-library-item--selected" : ""}`}
+                      onClick={() => {
+                        setIconDataUrl(dataUrl);
+                        setIconWidth(32);
+                      }}
+                    >
+                      <img src={dataUrl} alt={icon.name} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <label className="rrr-modal-field">
               Описание (видно во всплывающем окне в Истории при наведении на строку)

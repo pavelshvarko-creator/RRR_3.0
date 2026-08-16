@@ -10,7 +10,7 @@ export type CustomButtonDef = {
   description: string; // отдельный текст — виден во всплывающем окне при наведении на строку в Истории
   descriptionGifDataUrl: string | null; // гифка (как есть, без пересжатия — иначе слетит анимация), вместо описания или вместе с ним
   action: CustomButtonAction;
-  iconDataUrl: string | null; // уже уменьшенная (высота <= 32px) PNG data URL, или null — тогда текстовый фолбэк как у остальных кнопок
+  iconDataUrl: string | null; // уменьшенная (высота <= 32px) PNG data URL загруженного файла ИЛИ SVG data URL иконки из библиотеки; null — текстовый фолбэк как у остальных кнопок
   iconWidth: number; // натуральная ширина иконки после масштабирования, px
   author?: string;
 };

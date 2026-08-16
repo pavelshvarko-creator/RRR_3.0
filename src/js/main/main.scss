@@ -373,6 +373,46 @@
   align-self: flex-start;
 }
 
+.rrr-icon-library-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 4px;
+  background: $panelBlack;
+  border-radius: 3px;
+}
+
+.rrr-icon-library-item {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  &:hover {
+    background: $panelBlackHover;
+  }
+
+  &--selected {
+    border-color: $active;
+    background: $panelBlackHover;
+  }
+}
+
 .rrr-modal-gif-preview-wrap {
   position: relative;
   display: inline-block;
