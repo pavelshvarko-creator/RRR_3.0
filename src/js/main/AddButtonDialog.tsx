@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { CustomButtonDef, CustomButtonAction, ButtonHistoryEntry } from "../../shared/customButtons";
-import { loadAndScaleIcon, readFileAsBase64, readFileAsText, readImageAsDataURL } from "../lib/buttons/icon";
-import { ICON_LIBRARY, libraryIconToDataUrl } from "../lib/buttons/iconLibrary";
+import { readFileAsBase64, readFileAsText, readImageAsDataURL } from "../lib/buttons/icon";
 import { ButtonHistoryList } from "./ButtonHistoryList";
+import { IconPickerModal } from "./IconPickerModal";
 
 type ActionKind = CustomButtonAction["kind"];
 
@@ -50,18 +50,8 @@ export const AddButtonDialog = ({
   const [presetBase64, setPresetBase64] = useState(seed?.presetBase64 || "");
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(editingDef?.iconDataUrl ?? null);
   const [iconWidth, setIconWidth] = useState(editingDef?.iconWidth ?? 56);
+  const [showIconPicker, setShowIconPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handleIconChange = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      const { dataUrl, width } = await loadAndScaleIcon(file);
-      setIconDataUrl(dataUrl);
-      setIconWidth(width);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    }
-  };
 
   const handleDescriptionGifChange = async (file: File | undefined) => {
     if (!file) return;
@@ -222,35 +212,26 @@ export const AddButtonDialog = ({
               </label>
             )}
 
-            <label className="rrr-modal-field">
-              Иконка (высота автоматически ограничена 32px, без искажений)
-              <input type="file" accept="image/*" onChange={(e) => handleIconChange(e.target.files?.[0])} />
-              {iconDataUrl && <img src={iconDataUrl} alt="" className="rrr-modal-icon-preview" />}
-            </label>
-
             <div className="rrr-modal-field">
-              Или выбрать иконку из библиотеки (монтаж/моушн-дизайн)
-              <div className="rrr-icon-library-grid">
-                {ICON_LIBRARY.map((icon) => {
-                  const dataUrl = libraryIconToDataUrl(icon.svg);
-                  const selected = iconDataUrl === dataUrl;
-                  return (
-                    <button
-                      key={icon.name}
-                      type="button"
-                      title={icon.name}
-                      className={`rrr-icon-library-item${selected ? " rrr-icon-library-item--selected" : ""}`}
-                      onClick={() => {
-                        setIconDataUrl(dataUrl);
-                        setIconWidth(32);
-                      }}
-                    >
-                      <img src={dataUrl} alt={icon.name} />
-                    </button>
-                  );
-                })}
+              Иконка
+              <div className="rrr-icon-choose-row">
+                <button type="button" className="rrr-std-btn" onClick={() => setShowIconPicker(true)}>
+                  Choose icon
+                </button>
+                {iconDataUrl && <img src={iconDataUrl} alt="" className="rrr-modal-icon-preview" />}
               </div>
             </div>
+
+            {showIconPicker && (
+              <IconPickerModal
+                onClose={() => setShowIconPicker(false)}
+                onPick={(dataUrl, width) => {
+                  setIconDataUrl(dataUrl);
+                  setIconWidth(width);
+                  setShowIconPicker(false);
+                }}
+              />
+            )}
 
             <label className="rrr-modal-field">
               Описание (видно во всплывающем окне в Истории при наведении на строку)
